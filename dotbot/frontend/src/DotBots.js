@@ -402,6 +402,9 @@ const DotBots = () => {
           if (message.data.direction) {
             dotbotsTmp[idx].direction = message.data.direction;
           }
+          if (message.data.wind_angle) {
+            dotbotsTmp[idx].wind_angle = message.data.wind_angle;
+          }
           if (message.data.lh2_position) {
             const newPosition = {
               x: message.data.lh2_position.x,
