@@ -88,27 +88,43 @@ class SailBotSim:
         # get apparent wind speed and angle, f(v,heading,true_wind)
         self.true2apparent_wind()
 
-        # rudder and sail forces
-        g_r = p5 * self.v**2 * math.sin(rudder_in_rad)
-        g_s = p4 * self.wind_speed * math.sin(sail_in_rad - self.wind_angle)
+        # save initial state
+        initial_state = (self.x, self.y, self.direction, self.v, self.w)
 
-        # state-space model
-        x_dot = self.v * math.cos(self.direction) + p1 * self.true_wind_speed * math.cos(self.true_wind_angle)
-        y_dot = self.v * math.sin(self.direction) + p1 * self.true_wind_speed * math.sin(self.true_wind_angle)
-        direction_dot = self.w
-        v_dot = (g_s * math.sin(sail_in_rad) - g_r * p11 * math.sin(rudder_in_rad) - p2 * self.v**2) / p9
-        w_dot = (g_s * (p6 - p7 * math.cos(sail_in_rad)) - g_r * p8 * math.cos(rudder_in_rad) - p3 * self.w * self.v) / p10 
+        def _derivatives(state, rudder_in_rad, sail_in_rad):
+            x, y, direction, v, w = state
 
-        # Update state-space variables and apparent wind angle
-        self.x += x_dot * delta_t
-        self.y += y_dot * delta_t
-        self.direction += direction_dot * delta_t
-        self.v += v_dot * delta_t
-        self.w += w_dot * delta_t
+            # rudder and sail forces
+            g_r = p5 * self.v**2 * math.sin(rudder_in_rad)
+            g_s = p4 * self.wind_speed * math.sin(sail_in_rad - self.wind_angle)
 
-        # Get latitude and longitude from cartesian coordinates
+            # state-space model
+            x_dot = v * math.cos(direction) + p1 * self.true_wind_speed * math.cos(self.true_wind_angle)
+            y_dot = v * math.sin(direction) + p1 * self.true_wind_speed * math.sin(self.true_wind_angle)
+            direction_dot = w
+            v_dot = (g_s * math.sin(sail_in_rad) - g_r * p11 * math.sin(rudder_in_rad) - p2 * v**2) / p9
+            w_dot = (g_s * (p6 - p7 * math.cos(sail_in_rad)) - g_r * p8 * math.cos(rudder_in_rad) - p3 * w * v) / p10 
+
+            return (x_dot, y_dot, direction_dot, v_dot, w_dot)
+
+        # update state-space variables and apparent wind angle
+        # using Runge Kutta methods (RK4)
+        k1 = _derivatives(initial_state, sail_in_rad, rudder_in_rad)
+
+        state2 = tuple(initial_state[i] + 0.5 * delta_t * k1[i] for i in range(5))
+        k2 = _derivatives(state2, sail_in_rad, rudder_in_rad)
+
+        state3 = tuple(initial_state[i] + 0.5 * delta_t * k2[i] for i in range(5))
+        k3 = _derivatives(state3, sail_in_rad, rudder_in_rad)
+
+        state4 = tuple(initial_state[i] + delta_t * k3[i] for i in range(5))
+        k4 = _derivatives(state4, sail_in_rad, rudder_in_rad)
+
+        next_state = tuple(initial_state[i] + delta_t * (k1[i] + 2*k2[i] + 2*k3[i] + k4[i]) / 6 for i in range(5))
+        self.x, self.y, self.direction, self.v, self.w = next_state
+
+        # get latitude and longitude from cartesian coordinates
         self.latitude, self.longitude  = self.convert_cartesian_to_geographical(self.x, self.y)
-
 
     def true2apparent_wind(self):
         Wc_aw = (self.true_wind_speed * math.cos(self.true_wind_angle - self.direction) - self.v,
@@ -123,8 +139,8 @@ class SailBotSim:
 
     def update(self):
         if self.controller == "MANUAL":
-            # self.state_space_model()
-            self.debug_mode()
+            self.state_space_model()
+            # self.debug_mode()
             
         return self.encode_serial_output()
 
@@ -147,7 +163,7 @@ class SailBotSim:
                 int(self.longitude * 1e6),
                 ( -int(math.degrees(self.wind_angle)) ) % 360,
                 int( math.degrees(self.map_slider(self.rudder_in, -math.pi/6, math.pi/6)) ),
-                int( math.degrees(self.map_slider(self.sail_in, -math.pi/5.2, math.pi/5.2)) ),
+                int( math.degrees(self.map_slider(self.sail_in, -math.pi/2, math.pi/2)) ),
             ),
         )
         return hdlc_encode(payload.to_bytes())
